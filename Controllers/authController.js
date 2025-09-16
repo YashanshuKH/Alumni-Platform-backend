@@ -5,11 +5,31 @@ const User = require("../models/User"); // <-- adjust path
 exports.getLogin = (req, res, next) => {
   res.json({ isLoggedIn: false, success: true });
 };
+exports.postLogin = async (req, res, next) => {
+  const { firstname , mobileno, password } = req.body;
+
+  const user = await User.findOne({ mobileno });
+  if (!user) {
+    return res.status(422).json({
+      isLoggedIn: false,
+      errors: ["User does not exist"],
+    });
+  }
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) {
+    return res.status(422).json({
+      isLoggedIn: false,
+      message: "Invalid Password",
+      errors: ["Invalid Password"],
+    });
+  }
+  // req.session.user = user;
+  // req.session.isLoggedIn = true;
+  // await req.session.save();
+  res.json({ isLoggedIn: true, success: true });``
+};
 
 exports.postSignup = [
-  // ===========================
-  // Validation rules
-  // ===========================
   check("firstname")
     .trim()
     .isLength({ min: 5 })
@@ -38,8 +58,8 @@ exports.postSignup = [
     .normalizeEmail(),
 
   check("dob")
-    // .notEmpty()
-    // .withMessage("Date of Birth is required")
+    .notEmpty()
+    .withMessage("Date of Birth is required")
     .isISO8601()
     .toDate()
     .withMessage("Invalid date format")
@@ -49,7 +69,10 @@ exports.postSignup = [
 
       let age = today.getFullYear() - dob.getFullYear();
       const monthdiff = today.getMonth() - dob.getMonth();
-      if (monthdiff < 0 || (monthdiff === 0 && today.getDate() < dob.getDate())) {
+      if (
+        monthdiff < 0 ||
+        (monthdiff === 0 && today.getDate() < dob.getDate())
+      ) {
         age--;
       }
       if (age < 18) {
@@ -70,6 +93,28 @@ exports.postSignup = [
     .matches(/^[0-9]{12}$/)
     .withMessage("Aadhaar number should contain only digits"),
 
+    check("address")
+  .notEmpty()
+  .withMessage("Address is required"),
+
+check("pincode")
+  .isLength({ min: 6, max: 6 })
+  .withMessage("Pincode must be exactly 6 digits")
+  .matches(/^[0-9]{6}$/)
+  .withMessage("Pincode should contain only digits"),
+
+check("city")
+  .notEmpty()
+  .withMessage("City is required")
+  .matches(/^[A-Za-z\s]+$/)
+  .withMessage("City should contain only alphabets"),
+
+check("state")
+  .notEmpty()
+  .withMessage("State is required")
+  .matches(/^[A-Za-z\s]+$/)
+  .withMessage("State should contain only alphabets"),
+
   check("password")
     .isLength({ min: 8 })
     .withMessage("Password should be at least 8 characters long")
@@ -83,7 +128,7 @@ exports.postSignup = [
     .withMessage("Password should contain at least one special character")
     .trim(),
 
-  check("confirmPassword")
+  check("confirmpassword")
     .trim()
     .custom((value, { req }) => {
       if (value !== req.body.password) {
@@ -92,9 +137,6 @@ exports.postSignup = [
       return true;
     }),
 
-  // ===========================
-  // Controller logic
-  // ===========================
   async (req, res, next) => {
     const {
       firstname,
@@ -105,6 +147,10 @@ exports.postSignup = [
       dob,
       pannumber,
       aadhaarnumber,
+      address,
+      pincode,
+      city,
+      state,
       password,
     } = req.body;
 
@@ -131,7 +177,7 @@ exports.postSignup = [
 
       // Hash password
       const hashedPassword = await bcrypt.hash(password, 12);
-
+      console.log("arrived");
       // Save user
       const user = new User({
         firstname,
@@ -142,6 +188,10 @@ exports.postSignup = [
         dob,
         pannumber,
         aadhaarnumber,
+        address,
+        pincode,
+        city,
+        state,
         password: hashedPassword,
       });
       await user.save();
