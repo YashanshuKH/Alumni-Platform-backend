@@ -1,20 +1,26 @@
 const { check, validationResult } = require("express-validator");
 const bcrypt = require("bcryptjs");
-const User = require("../models/User"); // <-- adjust path
+const User = require("../models/User");
+const jwt = require("jsonwebtoken");
+const nodemailer = require("nodemailer");
+const SendVerificationCode = require("../middleware/email");
 
 exports.getLogin = (req, res, next) => {
   res.json({ isLoggedIn: false, success: true });
 };
 exports.postLogin = async (req, res, next) => {
-  const { firstname , mobileno, password } = req.body;
+  const { firstname, email, password } = req.body;
 
-  const user = await User.findOne({ mobileno });
+  const user = await User.findOne({ email });
   if (!user) {
     return res.status(422).json({
       isLoggedIn: false,
       errors: ["User does not exist"],
     });
   }
+  const verificationCode = Math.floor(
+    100000 + Math.random() * 90000
+  ).toString();
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
     return res.status(422).json({
@@ -23,10 +29,26 @@ exports.postLogin = async (req, res, next) => {
       errors: ["Invalid Password"],
     });
   }
+  SendVerificationCode(user.email, verificationCode, user.firstname);
   // req.session.user = user;
   // req.session.isLoggedIn = true;
   // await req.session.save();
-  res.json({ isLoggedIn: true, success: true });``
+  if(!user.isVerified){
+    res
+    .status(201)
+    .json({
+      isLoggedIn: true,
+      success: true,
+      message: "User Login successfull",
+    });
+  }
+  res
+    .status(201)
+    .json({
+      isLoggedIn: true,
+      success: true,
+      message: "User Login successfull",
+})
 };
 
 exports.postSignup = [
@@ -57,64 +79,6 @@ exports.postSignup = [
     .withMessage("Please enter a valid email")
     .normalizeEmail(),
 
-  check("dob")
-    .notEmpty()
-    .withMessage("Date of Birth is required")
-    .isISO8601()
-    .toDate()
-    .withMessage("Invalid date format")
-    .custom((value) => {
-      const today = new Date();
-      const dob = new Date(value);
-
-      let age = today.getFullYear() - dob.getFullYear();
-      const monthdiff = today.getMonth() - dob.getMonth();
-      if (
-        monthdiff < 0 ||
-        (monthdiff === 0 && today.getDate() < dob.getDate())
-      ) {
-        age--;
-      }
-      if (age < 18) {
-        throw new Error("You must be at least 18 years old to sign up");
-      }
-      return true;
-    }),
-
-  check("pannumber")
-    .isLength({ min: 10, max: 10 })
-    .withMessage("PAN number must be exactly 10 characters")
-    .matches(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/)
-    .withMessage("Invalid PAN format"),
-
-  check("aadhaarnumber")
-    .isLength({ min: 12, max: 12 })
-    .withMessage("Aadhaar number must be exactly 12 digits")
-    .matches(/^[0-9]{12}$/)
-    .withMessage("Aadhaar number should contain only digits"),
-
-    check("address")
-  .notEmpty()
-  .withMessage("Address is required"),
-
-check("pincode")
-  .isLength({ min: 6, max: 6 })
-  .withMessage("Pincode must be exactly 6 digits")
-  .matches(/^[0-9]{6}$/)
-  .withMessage("Pincode should contain only digits"),
-
-check("city")
-  .notEmpty()
-  .withMessage("City is required")
-  .matches(/^[A-Za-z\s]+$/)
-  .withMessage("City should contain only alphabets"),
-
-check("state")
-  .notEmpty()
-  .withMessage("State is required")
-  .matches(/^[A-Za-z\s]+$/)
-  .withMessage("State should contain only alphabets"),
-
   check("password")
     .isLength({ min: 8 })
     .withMessage("Password should be at least 8 characters long")
@@ -138,21 +102,8 @@ check("state")
     }),
 
   async (req, res, next) => {
-    const {
-      firstname,
-      middlename,
-      lastname,
-      mobileno,
-      email,
-      dob,
-      pannumber,
-      aadhaarnumber,
-      address,
-      pincode,
-      city,
-      state,
-      password,
-    } = req.body;
+    const { firstname, middlename, lastname, mobileno, email, password } =
+      req.body;
 
     const errors = validationResult(req);
 
@@ -164,7 +115,9 @@ check("state")
         errors: errors.array(), // send all field errors
       });
     }
-
+  const verificationCode = Math.floor(
+    100000 + Math.random() * 90000
+  ).toString();
     try {
       // Check if user already exists
       const existingUser = await User.findOne({ email });
@@ -185,17 +138,10 @@ check("state")
         lastname,
         mobileno,
         email,
-        dob,
-        pannumber,
-        aadhaarnumber,
-        address,
-        pincode,
-        city,
-        state,
         password: hashedPassword,
       });
       await user.save();
-
+      SendVerificationCode(user.email, verificationCode, user.firstname);     
       // Success response
       return res.status(201).json({
         success: true,
@@ -209,3 +155,92 @@ check("state")
     }
   },
 ];
+
+exports.forgotpassword = async (req, res, next) => {
+  const { email } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user)
+      return res
+        .status(400)
+        .json({ message: "User not found", success: false });
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "15m",
+    });
+    user.resetToken = token;
+    user.resetTokenExpiry = Date.now() + 15 * 60 * 1000;
+    await user.save();
+
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: "yashanshukhandelwal272011@gmail.com",
+        pass: "gvll culz gtkc rpab",
+      },
+    });
+    const resetLink = `http://localhost:3000/reset-password/${token}`;
+
+    await transporter.sendMail({
+      to: user.email,
+      subject: "Password Reset",
+      html: `<p>Click <a href="${resetLink}">here</a> to reset your password</p>`,
+    });
+    res.json({ message: "Password reset link sent!" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.resetpassword = async (req, res) => {
+  const { token } = req.params;
+  const { password } = req.body;
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id);
+
+    if (
+      !user ||
+      user.resetToken !== token ||
+      user.resetTokenExpiry < Date.now()
+    ) {
+      return res.status(400).json({ message: "Invalid or expired token" });
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    user.password = hashedPassword;
+    user.resetToken = undefined;
+    user.resetTokenExpiry = undefined;
+    await user.save();
+    res.json({ message: "Password reset successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.verifyemail = async (req, res) => {
+  try {
+    const { code } = req.body;
+    const user = await User.findOne({
+      // _id:req.session.user.id,
+      verificationCode: code,
+    });
+    console.log("This is the user", user);
+    if (!user) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid or Expired Code" });
+    }
+
+    user.isVerified = true;
+    user.verificationCode = undefined;
+    await user.save();
+    return res
+      .status(200)
+      .json({ success: true, message: "User verified successfully" });
+  } catch (error) {
+    console.log("error occured", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Server error", error: error.message });
+  }
+};
