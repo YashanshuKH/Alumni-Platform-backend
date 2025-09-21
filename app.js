@@ -6,7 +6,8 @@ const session = require('express-session');
 const MongoDBStore =require('connect-mongodb-session')(session);
 const { default: mongoose } = require('mongoose');
 const authRouter = require('./routes/authRouter');
-const bodyParser = require("body-parser")
+const bodyParser = require("body-parser");
+const alumniRouter = require('./routes/alumniRouter');
 
 const app=express();
 
@@ -21,6 +22,8 @@ app.use(
 ); 
 
 app.use("/api/user",authRouter)
+app.use("/api/alumni",alumniRouter)
+
 
 const PORT=process.env.PORT || 3000;
 mongoose.connect(DB_PATH).then(()=>{

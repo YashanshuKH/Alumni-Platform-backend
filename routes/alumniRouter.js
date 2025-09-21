@@ -5,14 +5,11 @@ const alumniRouter=express.Router()
 
 const alumniController=require("../Controllers/alumniController")
 
-const postJobController = require("../controllers/postJobController");
+alumniRouter.get("/alumni",alumniController.getAlumni)
+// alumniRouter.post("/:userId/post_job", alumniController.postJob);
+// alumniRouter.get("/:userId/post_job", alumniController.getPostedJobs);
+// alumniRouter.put("/:userId/post_job/:jobId", alumniController.updatePostedJob);
+// alumniRouter.delete("/:userId/post_job/:jobId", alumniController.deletePostedJob);
 
-alumniRouter.post("/:userId/post-job", postJobController.postJob);
-
-alumniRouter.get("/:userId/post-job", postJobController.getPostedJobs);
-
-alumniRouter.put("/:userId/post-job/:jobId", postJobController.updatePostedJob);
-
-alumniRouter.delete("/:userId/post-job/:jobId", postJobController.deletePostedJob);
 
 module.exports = alumniRouter;
