@@ -5,7 +5,7 @@ const alumniRouter=express.Router()
 
 const alumniController=require("../Controllers/alumniController")
 
-alumniRouter.get("/alumni",alumniController.getAlumni)
+alumniRouter.get("/alumnidata",alumniController.getAlumni)
 // alumniRouter.post("/:userId/post_job", alumniController.postJob);
 // alumniRouter.get("/:userId/post_job", alumniController.getPostedJobs);
 // alumniRouter.put("/:userId/post_job/:jobId", alumniController.updatePostedJob);

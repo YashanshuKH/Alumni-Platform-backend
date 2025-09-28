@@ -16,46 +16,78 @@ exports.postLogin = async (req, res, next) => {
   const { email, password } = req.body;
 
   try {
+    // 1️⃣ Check if user exists
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(422).json({
+      return res.status(401).json({
         isLoggedIn: false,
+        success: false,
         errors: ["User does not exist"],
       });
     }
 
+    // 2️⃣ Compare password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(422).json({
+      return res.status(401).json({
         isLoggedIn: false,
-        message: "Invalid Password",
-        errors: ["Invalid Password"],
+        success: false,
+        errors: ["Invalid password"],
       });
     }
 
-    // Generate JWT token
-    const token = jwt.sign({ id: user._id, email: user.email }, JWT_SECRET, {
-      expiresIn: "1h",
-    });
-
-    // Send verification code if user not verified
+    // 3️⃣ If user is not verified, send verification code
     if (!user.isVerified) {
-      const verificationCode = Math.floor(100000 + Math.random() * 90000).toString();
-      SendVerificationCode(user.email, verificationCode, user.firstname);
+      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+      // SendVerificationCode(user.email, verificationCode, user.firstname);
       user.verificationCode = verificationCode;
       await user.save();
+
+      return res.status(200).json({
+        isLoggedIn: true,
+        success: true,
+        user: {
+          id: user._id,
+          firstname: user.firstname,
+          email: user.email,
+          isVerified: user.isVerified,
+        },
+        message: "Verification code sent to your email",
+      });
     }
 
+    // 4️⃣ Store user info in session (MongoDB session)
+    req.session.isLoggedIn = true;
+
+    req.session.user = {
+      id: user._id,
+      firstname: user.firstname,
+      email: user.email,
+      isVerified: user.isVerified,
+    };
+    req.session.save(err =>{
+      if(err) console.log("Session save error" , err)
+    })
+
+    // 5️⃣ Return success response
     res.status(200).json({
       isLoggedIn: true,
       success: true,
-      token,
-      user: { id: user._id, firstname: user.firstname, email: user.email, isVerified: user.isVerified },
-      message: "User login successful",
+      user: req.session.user,
+      message: "Login successful",
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error("Login error:", err);
+    res.status(500).json({
+      isLoggedIn: false,
+      success: false,
+      message: "Something went wrong. Please try again later.",
+    });
   }
+};
+exports.isAuthenticated = (req, res, next) => {
+  if (req.session.isLoggedIn) return next();
+  res.status(401).json({ message: "Unauthorized" });
 };
 
 // ====================== SIGNUP ======================

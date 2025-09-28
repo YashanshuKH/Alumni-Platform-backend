@@ -6,12 +6,14 @@ const session = require('express-session');
 const MongoDBStore =require('connect-mongodb-session')(session);
 const { default: mongoose } = require('mongoose');
 const authRouter = require('./routes/authRouter');
-const bodyParser = require("body-parser");
+
 const alumniRouter = require('./routes/alumniRouter');
+const cookieParser = require('cookie-parser');
 
 const app=express();
 
 app.use(express.json()); // <-- Important
+app.use(cookieParser())
 app.use(express.urlencoded({ extended: true })); 
 
 app.use(
@@ -20,6 +22,27 @@ app.use(
     credentials: true,
   })
 ); 
+// MongoDB session store
+const store = new MongoDBStore({
+  uri:process.env.MONGO_URL,
+  collection: "sessions",
+});
+
+// Session middleware
+app.use(
+  session({
+    secret: process.env.JWT_SECRET, // store in .env
+    resave: false,
+    saveUninitialized: false,
+    store: store,
+    cookie: {
+      maxAge: 1000 * 60 * 60 * 24 *30, // 1 hour
+      httpOnly: true, // cannot be accessed by JS
+      secure: false, // set true if using HTTPS
+      sameSite:"lax"
+    },
+  })
+);
 
 app.use("/api/user",authRouter)
 app.use("/api/alumni",alumniRouter)
