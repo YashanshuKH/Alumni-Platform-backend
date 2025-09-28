@@ -19,10 +19,15 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: [
+      "http://localhost:5173",
+      "https://alumni-platform-18zc.onrender.com"
+    ],
     credentials: true,
   })
-); 
+);
+
+
 // MongoDB session store
 const store = new MongoDBStore({
   uri:process.env.MONGO_URL,
