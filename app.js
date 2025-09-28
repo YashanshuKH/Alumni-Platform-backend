@@ -9,6 +9,7 @@ const authRouter = require('./routes/authRouter');
 
 const alumniRouter = require('./routes/alumniRouter');
 const cookieParser = require('cookie-parser');
+const adminRouter = require('./routes/adminRouter');
 
 const app=express();
 
@@ -46,6 +47,8 @@ app.use(
 
 app.use("/api/user",authRouter)
 app.use("/api/alumni",alumniRouter)
+app.use("/api/admin",adminRouter)
+
 
 
 const PORT=process.env.PORT || 3000;
