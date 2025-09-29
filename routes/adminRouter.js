@@ -1,47 +1,25 @@
-const express = require("express");
+const path = require('path');
+const express = require('express');
 const adminRouter = express.Router();
 
+// Import the Admin Controller
 const adminController = require("../Controllers/adminController");
-const userController = require("../controllers/userController");
 
-// ===================================================
-// ADMIN MANAGEMENT ROUTES
-// ===================================================
+// ========== Admin Routes ==========
 
-// Users Management
+// Get all admin data
+adminRouter.get("/admindata", adminController.getAdminData);
 
-// GET all users
-adminRouter.get("/:adminId/users", userController.getAllUsers);
+// Create a new admin
+adminRouter.post("/create", adminController.createEvent);
 
-// GET a specific user by ID
-adminRouter.get("/:adminId/users/:userId", userController.getUserById);
+// Update admin details by ID
+adminRouter.put("/update/:adminId", adminController.updateAdmin);
 
-// UPDATE a user's role or status
-adminRouter.put("/:adminId/users/:userId", userController.updateUserRoleOrStatus);
+// Delete admin by ID
+adminRouter.delete("/delete/:adminId", adminController.deleteAdmin);
 
-// DELETE a user account
-adminRouter.delete("/:adminId/users/:userId", userController.deleteUser);
-
-// ---------------------------------------------------
-
-// Content/Job Management
-
-// Create a new job post
-adminRouter.post("/:adminId/post-job", adminController.createJob);
-
-// Approve a pending job post
-adminRouter.put("/:adminId/jobs/:jobId/approve", adminController.approveJob);
-
-// Delete any job post
-adminRouter.delete("/:adminId/jobs/:jobId", adminController.deleteAnyJob);
-
-// ---------------------------------------------------
-
-// Analytics/Dashboard
-
-// GET general dashboard statistics
-adminRouter.get("/:adminId/dashboard-stats", adminController.getDashboardStats);
-
-// ---------------------------------------------------
+// Example: Admin login
+adminRouter.post("/login", adminController.loginAdmin);
 
 module.exports = adminRouter;
