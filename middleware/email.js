@@ -1,7 +1,7 @@
 const  Verification_Email_Template  = require("../libs/EmailTemplate.js");
 const transporter  = require("./email.config.js");
 
- const SendVerificationCode = async (email , verificationCode ,name)=>{
+const SendVerificationCode = async (email , verificationCode ,name)=>{
     try{
         const response = await transporter.sendMail({
             from:'"Yashanshu" <yashanshukhandelwal272011@gmail.com>',

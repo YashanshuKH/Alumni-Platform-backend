@@ -1,15 +1,20 @@
-const {  validationResult, check } = require("express-validator");
+const { validationResult, check } = require("express-validator");
 const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const SendVerificationCode = require("../middleware/email");
+const crypto = require("crypto");
 
 // Secret key for JWT
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
 
-exports.getLogin = (req, res, next) => {
-  res.json({ isLoggedIn: false, success: true });
+exports.checking = (req, res, next) => {
+  if (req.session.isLoggedIn) {
+    res.json({ isLoggedIn: true, success: true, user: req.session.user });
+  } else {
+    res.json({ isLoggedIn: false, success: true });
+  }
 };
 
 exports.postLogin = async (req, res, next) => {
@@ -20,9 +25,9 @@ exports.postLogin = async (req, res, next) => {
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(401).json({
-        isLoggedIn: false,
         success: false,
-        errors: ["User does not exist"],
+        isLoggedIn: false,
+        errors: ["Invalid email or password"],
       });
     }
 
@@ -30,61 +35,66 @@ exports.postLogin = async (req, res, next) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({
-        isLoggedIn: false,
         success: false,
-        errors: ["Invalid password"],
+        isLoggedIn: false,
+        errors: ["Invalid email or password"],
       });
     }
 
     // 3️⃣ If user is not verified, send verification code
     if (!user.isVerified) {
-      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-      // SendVerificationCode(user.email, verificationCode, user.firstname);
+      const verificationCode = crypto.randomInt(100000, 999999).toString();
+
       user.verificationCode = verificationCode;
+      user.verificationCodeExpiry = Date.now() + 10 * 60 * 1000; // 10 mins expiry
       await user.save();
 
+      SendVerificationCode(user.email, verificationCode, user.firstname);
+
       return res.status(200).json({
-        isLoggedIn: true,
         success: true,
-        user: {
-          id: user._id,
-          firstname: user.firstname,
-          email: user.email,
-          isVerified: user.isVerified,
-        },
+        isLoggedIn: false, // 🚨 not logged in until verified
+        requiresVerification: true,
+        user: { id: user._id, email: user.email },
         message: "Verification code sent to your email",
       });
     }
 
-    // 4️⃣ Store user info in session (MongoDB session)
+    // 4️⃣ Store user info in session
     req.session.isLoggedIn = true;
-
     req.session.user = {
       id: user._id,
       firstname: user.firstname,
       email: user.email,
       isVerified: user.isVerified,
     };
-    req.session.save(err =>{
-      if(err) console.log("Session save error" , err)
-    })
 
-    // 5️⃣ Return success response
-    res.status(200).json({
-      isLoggedIn: true,
-      success: true,
-      user: req.session.user,
-      message: "Login successful",
+    req.session.save((err) => {
+      if (err) {
+        console.log("Session save error:", err);
+        return res
+          .status(500)
+          .json({ success: false, message: "Session error" });
+      }
+
+      // 5️⃣ Return success response
+      res.status(200).json({
+        success: true,
+        isLoggedIn: true,
+        user: req.session.user,
+        message: "Login successful",
+      });
     });
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({
-      isLoggedIn: false,
       success: false,
+      isLoggedIn: false,
       message: "Something went wrong. Please try again later.",
     });
   }
 };
+
 exports.isAuthenticated = (req, res, next) => {
   if (req.session.isLoggedIn) return next();
   res.status(401).json({ message: "Unauthorized" });
@@ -135,7 +145,8 @@ exports.postSignup = [
   check("confirmpassword")
     .trim()
     .custom((value, { req }) => {
-      if (value !== req.body.password) throw new Error("Passwords do not match");
+      if (value !== req.body.password)
+        throw new Error("Passwords do not match");
       return true;
     }),
 
@@ -149,8 +160,11 @@ exports.postSignup = [
       });
     }
 
-    const { firstname, middlename, lastname, mobileno, email, password } = req.body;
-    const verificationCode = Math.floor(100000 + Math.random() * 90000).toString();
+    const { firstname, middlename, lastname, mobileno, email, password } =
+      req.body;
+    const verificationCode = Math.floor(
+      100000 + Math.random() * 90000
+    ).toString();
 
     try {
       const existingUser = await User.findOne({ email });
@@ -181,21 +195,21 @@ exports.postSignup = [
         message: "User registered successfully",
       });
     } catch (err) {
-      return res.status(500).json({ success: false, message: err.message || "Something went wrong" });
+      return res.status(500).json({
+        success: false,
+        message: err.message || "Something went wrong",
+      });
     }
   },
 ];
 
 // ====================== LOGOUT ======================
 exports.postLogout = async (req, res) => {
-  // For JWT: just let client remove the token
-  // Optionally, you can blacklist token here if needed
   res.status(200).json({ success: true, message: "Logged out successfully" });
 };
 
 // ====================== EMAIL VERIFICATION, FORGOT, RESET PASSWORD ======================
 // Keep your existing functions (forgotpassword, resetpassword, verifyemail)
-
 
 exports.forgotpassword = async (req, res, next) => {
   const { email } = req.body;
@@ -258,31 +272,75 @@ exports.resetpassword = async (req, res) => {
   }
 };
 
-exports.verifyemail = async (req, res) => {
+exports.verifyEmail = async (req, res) => {
   try {
     const { code } = req.body;
-    const user = await User.findOne({
-      // _id:req.session.user.id,
-      verificationCode: code,
-    });
-    console.log("This is the user", user);
+
+    if (!code) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Code is required" });
+    }
+
+    // Find user with code
+    const user = await User.findOne({ verificationCode: code });
+
     if (!user) {
       return res
         .status(400)
-        .json({ success: false, message: "Invalid or Expired Code" });
+        .json({ success: false, message: "Invalid or expired code" });
     }
 
+    // Check expiry
+    if (
+      user.verificationCodeExpiry &&
+      user.verificationCodeExpiry < Date.now()
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Verification code expired" });
+    }
+
+    // Mark as verified
     user.isVerified = true;
     user.verificationCode = undefined;
+    user.verificationCodeExpiry = undefined;
+    user.verifiedAt = new Date();
     await user.save();
-    return res
-      .status(200)
-      .json({ success: true, message: "User verified successfully" });
+
+    // Create session (same as login)
+    req.session.isLoggedIn = true;
+    req.session.user = {
+      id: user._id,
+      firstname: user.firstname,
+      email: user.email,
+      isVerified: user.isVerified,
+    };
+
+    req.session.save((err) => {
+      if (err) {
+        console.log("Session save error:", err);
+        return res
+          .status(500)
+          .json({ success: false, message: "Session error" });
+      }
+
+      return res.status(200).json({
+        success: true,
+        isLoggedIn: true,
+        user: req.session.user,
+        message: "User verified and logged in successfully",
+      });
+    });
   } catch (error) {
-    console.log("error occured", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Server error", error: error.message });
+    console.error("Verification error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
-
+exports.ResendOtp = (req,res,next) => {
+  SendVerificationCode(
+    res.email,
+    res.verificationCode,
+    res.firstname
+  );
+};
