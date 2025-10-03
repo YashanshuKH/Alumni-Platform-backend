@@ -50,7 +50,7 @@ app.use(
   })
 );
 
-app.use("/api/user",authRouter)
+app.use("/api/auth",authRouter)
 app.use("/api/alumni",alumniRouter)
 app.use("/api/admin",adminRouter)
 

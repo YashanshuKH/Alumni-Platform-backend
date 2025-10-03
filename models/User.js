@@ -38,6 +38,11 @@ const userSchema = new mongoose.Schema({
   resetToken: String,
   resetTokenExpiry: Date,
 
+  isVerified: { type: Boolean, default: false },
+  verificationCode: { type: String },
+  verificationCodeExpiry: { type: Date },
+  verifiedAt: { type: Date },
+
   // Jobs array
   jobs: [jobSchema]
 });

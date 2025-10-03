@@ -5,13 +5,15 @@ const authRouter=express.Router()
 
 const authController=require("../Controllers/authController")
 
-// authRouter.post("/login",authController.getLogin)
+authRouter.get("/check",authController.checking)
 authRouter.post("/login",authController.postLogin)
 authRouter.post("/logout",authController.postLogout)
 authRouter.post("/signup",authController.postSignup)
 authRouter.post("/forgot-password",authController.forgotpassword)
 authRouter.post("/reset-password/:token",authController.resetpassword)
-authRouter.post("/verifyemail",authController.verifyemail);
+authRouter.post("/verifyemail",authController.verifyEmail);
+authRouter.post("/ResendOtp",authController.ResendOtp);
+
 
 
 
