@@ -205,8 +205,23 @@ exports.postSignup = [
 
 // ====================== LOGOUT ======================
 exports.postLogout = async (req, res) => {
-  res.status(200).json({ success: true, message: "Logged out successfully" });
+  console.log("arrived")
+  req.session.destroy((err) => {
+    if (err) {
+      console.error("Error destroying session:", err);
+      return res.status(500).json({ success: false, message: "Logout failed" });
+    }
+
+    // Clear the session cookie
+    res.clearCookie("connect.sid"); // default session cookie name
+    res.status(200).json({
+      success: true,
+      message: "Logged out successfully",
+      isLoggedIn: false
+    });
+  });
 };
+
 
 // ====================== EMAIL VERIFICATION, FORGOT, RESET PASSWORD ======================
 // Keep your existing functions (forgotpassword, resetpassword, verifyemail)
