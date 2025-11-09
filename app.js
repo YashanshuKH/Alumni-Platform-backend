@@ -21,7 +21,7 @@ app.use(cookieParser());
 // ✅ CORS (Must be before session)
 app.use(
   cors({
-    origin: "http://localhost:5173", // <-- Change if your frontend runs on another port
+    origin: ["http://localhost:5173","https://alumni-platform-18zc.onrender.com"], // <-- Change if your frontend runs on another port
     credentials: true,
   })
 );
@@ -43,7 +43,7 @@ app.use(
     store,
     cookie: {
       httpOnly: true,
-      secure: false, // If deploying to production + https → set true
+      secure: true, // If deploying to production + https → set true
       sameSite: "lax",
       maxAge: 1000 * 60 * 60 * 24, // 24 hours
     },
