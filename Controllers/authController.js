@@ -2,360 +2,338 @@ const { validationResult, check } = require("express-validator");
 const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
 const SendVerificationCode = require("../middleware/email");
 const crypto = require("crypto");
+const SendResendMail = require("../middleware/Reset");
 
-// Secret key for JWT
-const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
+// Constants
+const JWT_SECRET = process.env.JWT_SECRET;
+const VERIFICATION_CODE_EXPIRY = 10 * 60 * 1000; // 10 minutes
 
-exports.checking = (req, res, next) => {
-  if (req.session.isLoggedIn) {
-    res.json({ isLoggedIn: true, success: true, user: req.session.user });
-  } else {
-    res.json({ isLoggedIn: false, success: true });
-  }
+// Helper Functions
+const generateVerificationCode = () =>
+  crypto.randomInt(100000, 999999).toString();
+
+const createSession = (req, user, res) => {
+  req.session.isLoggedIn = true;
+  req.session.user = {
+    id: user._id,
+    firstname: user.firstname,
+    email: user.email,
+    isVerified: user.isVerified,
+  };
+
+  req.session.save((err) => {
+    if (err)
+      return res
+        .status(500)
+        .json({ success: false, message: "Session save failed" });
+    return res.status(200).json({
+      success: true,
+      isLoggedIn: true,
+      user: req.session.user,
+      message: "Login successful",
+    });
+  });
 };
 
-exports.postLogin = async (req, res, next) => {
+// Check Session
+exports.checking = (req, res) => {
+  return res.json({
+    success: true,
+    isLoggedIn: req.session.isLoggedIn || false,
+    user: req.session.user || null,
+  });
+};
+
+// Login
+exports.postLogin = async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    // 1️⃣ Check if user exists
     const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        isLoggedIn: false,
-        errors: ["Invalid email or password"],
-      });
-    }
+    if (!user)
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid credentials" });
 
-    // 2️⃣ Compare password
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        isLoggedIn: false,
-        errors: ["Invalid email or password"],
-      });
-    }
+    if (!isMatch)
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid credentials" });
 
-    // 3️⃣ If user is not verified, send verification code
     if (!user.isVerified) {
-      const verificationCode = crypto.randomInt(100000, 999999).toString();
-
-      user.verificationCode = verificationCode;
-      user.verificationCodeExpiry = Date.now() + 10 * 60 * 1000; // 10 mins expiry
+      const code = generateVerificationCode();
+      user.verificationCode = code;
+      user.verificationCodeExpiry = Date.now() + VERIFICATION_CODE_EXPIRY;
       await user.save();
-
-      SendVerificationCode(user.email, verificationCode, user.firstname);
+      await SendVerificationCode(user.email, code, user.firstname);
 
       return res.status(200).json({
         success: true,
-        isLoggedIn: false, // 🚨 not logged in until verified
         requiresVerification: true,
         user: { id: user._id, email: user.email },
-        message: "Verification code sent to your email",
+        message: "Verification code sent",
       });
     }
 
-    // 4️⃣ Store user info in session
-    req.session.isLoggedIn = true;
-    req.session.user = {
-      id: user._id,
-      firstname: user.firstname,
-      email: user.email,
-      isVerified: user.isVerified,
-    };
-
-    req.session.save((err) => {
-      if (err) {
-        console.log("Session save error:", err);
-        return res
-          .status(500)
-          .json({ success: false, message: "Session error" });
-      }
-
-      // 5️⃣ Return success response
-      res.status(200).json({
-        success: true,
-        isLoggedIn: true,
-        user: req.session.user,
-        message: "Login successful",
-      });
-    });
-  } catch (err) {
-    console.error("Login error:", err);
-    res.status(500).json({
-      success: false,
-      isLoggedIn: false,
-      message: "Something went wrong. Please try again later.",
-    });
+    return createSession(req, user, res);
+  } catch (error) {
+    console.error("Login Error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
-exports.isAuthenticated = (req, res, next) => {
-  if (req.session.isLoggedIn) return next();
-  res.status(401).json({ message: "Unauthorized" });
-};
-
-// ====================== SIGNUP ======================
-exports.postSignup = [
+// Signup Validation
+const signupValidationRules = [
   check("firstname")
     .trim()
-    .isLength({ min: 5 })
-    .withMessage("First Name should be at least 5 characters long")
+    .notEmpty()
+    .withMessage("First name is required")
+    .isLength({ min: 3 })
+    .withMessage("First name must be at least 3 characters long")
     .matches(/^[A-Za-z\s]+$/)
-    .withMessage("First Name should contain only alphabets"),
+    .withMessage("First name should contain alphabets only"),
 
   check("middlename")
+    .optional()
+    .trim()
     .matches(/^[A-Za-z\s]*$/)
-    .withMessage("Middle Name should contain only alphabets"),
+    .withMessage("Middle name should contain alphabets only"),
 
   check("lastname")
-    .matches(/^[A-Za-z\s]*$/)
-    .withMessage("Last Name should contain only alphabets"),
+    .trim()
+    .notEmpty()
+    .withMessage("Last name is required")
+    .matches(/^[A-Za-z\s]+$/)
+    .withMessage("Last name should contain alphabets only"),
 
   check("mobileno")
+    .trim()
+    .notEmpty()
+    .withMessage("Mobile number is required")
     .isLength({ min: 10, max: 10 })
     .withMessage("Mobile number must be exactly 10 digits")
     .matches(/^[0-9]{10}$/)
-    .withMessage("Mobile number should contain only digits"),
+    .withMessage("Mobile number must contain digits only"),
 
   check("email")
     .notEmpty()
+    .withMessage("Email is required")
     .isEmail()
-    .withMessage("Please enter a valid email")
+    .withMessage("Invalid email format")
     .normalizeEmail(),
 
   check("password")
+    .notEmpty()
+    .withMessage("Password is required")
     .isLength({ min: 8 })
-    .withMessage("Password should be at least 8 characters long")
-    .matches(/[A-Z]/)
-    .withMessage("Password should contain at least one uppercase letter")
-    .matches(/[a-z]/)
-    .withMessage("Password should contain at least one lowercase letter")
-    .matches(/[0-9]/)
-    .withMessage("Password should contain at least one number")
-    .matches(/[!@#$%^&*]/)
-    .withMessage("Password should contain at least one special character")
-    .trim(),
+    .withMessage("Password must be at least 8 characters")
+    .matches(/^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*])/)
+    .withMessage(
+      "Password must contain uppercase, lowercase, number, and special character"
+    ),
 
-  check("confirmpassword")
-    .trim()
-    .custom((value, { req }) => {
-      if (value !== req.body.password)
-        throw new Error("Passwords do not match");
-      return true;
-    }),
-
-  async (req, res, next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(422).json({
-        success: false,
-        message: "Validation failed",
-        errors: errors.array(),
-      });
+  check("confirmpassword").custom((value, { req }) => {
+    if (value !== req.body.password) {
+      throw new Error("Passwords do not match");
     }
+    return true;
+  }),
+];
 
-    const { firstname, middlename, lastname, mobileno, email, password } =
-      req.body;
-    const verificationCode = Math.floor(
-      100000 + Math.random() * 90000
-    ).toString();
+// Signup
+exports.postSignup = [
+  ...signupValidationRules,
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty())
+      return res.status(422).json({ success: false, errors: errors.array() });
 
     try {
-      const existingUser = await User.findOne({ email });
-      if (existingUser) {
-        return res.status(422).json({
-          success: false,
-          message: "Email already exists, please use another one.",
-        });
-      }
+      const { firstname, middlename, lastname, mobileno, email, password } =
+        req.body;
+
+      if (await User.findOne({ email }))
+        return res
+          .status(422)
+          .json({ success: false, message: "Email already exists" });
 
       const hashedPassword = await bcrypt.hash(password, 12);
+      const code = generateVerificationCode();
 
-      const user = new User({
+      const user = await User.create({
         firstname,
         middlename,
         lastname,
         mobileno,
         email,
         password: hashedPassword,
-        verificationCode,
+        verificationCode: code,
+        verificationCodeExpiry: Date.now() + VERIFICATION_CODE_EXPIRY,
       });
 
-      await user.save();
-      SendVerificationCode(user.email, verificationCode, user.firstname);
+      await SendVerificationCode(email, code, firstname);
 
       return res.status(201).json({
         success: true,
-        message: "User registered successfully",
+        message: "Account created. Check your email for verification code.",
       });
-    } catch (err) {
-      return res.status(500).json({
-        success: false,
-        message: err.message || "Something went wrong",
-      });
+    } catch (error) {
+      console.error("Signup Error:", error);
+      return res.status(500).json({ success: false, message: "Server error" });
     }
   },
 ];
 
-// ====================== LOGOUT ======================
-exports.postLogout = async (req, res) => {
-  console.log("arrived")
-  req.session.destroy((err) => {
-    if (err) {
-      console.error("Error destroying session:", err);
-      return res.status(500).json({ success: false, message: "Logout failed" });
-    }
-
-    // Clear the session cookie
-    res.clearCookie("connect.sid"); // default session cookie name
-    res.status(200).json({
-      success: true,
-      message: "Logged out successfully",
-      isLoggedIn: false
-    });
-  });
-};
-
-
-// ====================== EMAIL VERIFICATION, FORGOT, RESET PASSWORD ======================
-// Keep your existing functions (forgotpassword, resetpassword, verifyemail)
-
-exports.forgotpassword = async (req, res, next) => {
-  const { email } = req.body;
-  try {
-    const user = await User.findOne({ email });
-    if (!user)
-      return res
-        .status(400)
-        .json({ message: "User not found", success: false });
-
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "15m",
-    });
-    user.resetToken = token;
-    user.resetTokenExpiry = Date.now() + 15 * 60 * 1000;
-    await user.save();
-
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: "yashanshukhandelwal272011@gmail.com",
-        pass: "gvll culz gtkc rpab",
-      },
-    });
-    const resetLink = `http://localhost:3000/reset-password/${token}`;
-
-    await transporter.sendMail({
-      to: user.email,
-      subject: "Password Reset",
-      html: `<p>Click <a href="${resetLink}">here</a> to reset your password</p>`,
-    });
-    res.json({ message: "Password reset link sent!" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
-exports.resetpassword = async (req, res) => {
-  const { token } = req.params;
-  const { password } = req.body;
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id);
-
-    if (
-      !user ||
-      user.resetToken !== token ||
-      user.resetTokenExpiry < Date.now()
-    ) {
-      return res.status(400).json({ message: "Invalid or expired token" });
-    }
-    const hashedPassword = await bcrypt.hash(password, 10);
-    user.password = hashedPassword;
-    user.resetToken = undefined;
-    user.resetTokenExpiry = undefined;
-    await user.save();
-    res.json({ message: "Password reset successfully" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
+// Verify Email
 exports.verifyEmail = async (req, res) => {
   try {
     const { code } = req.body;
 
-    if (!code) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Code is required" });
-    }
+    const user = await User.findOne({
+      
+      verificationCode: code,
+      verificationCodeExpiry: { $gt: Date.now() },
+    });
 
-    // Find user with code
-    const user = await User.findOne({ verificationCode: code });
-
-    if (!user) {
+    if (!user)
       return res
         .status(400)
         .json({ success: false, message: "Invalid or expired code" });
-    }
 
-    // Check expiry
-    if (
-      user.verificationCodeExpiry &&
-      user.verificationCodeExpiry < Date.now()
-    ) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Verification code expired" });
-    }
-
-    // Mark as verified
     user.isVerified = true;
     user.verificationCode = undefined;
     user.verificationCodeExpiry = undefined;
-    user.verifiedAt = new Date();
     await user.save();
 
-    // Create session (same as login)
-    req.session.isLoggedIn = true;
-    req.session.user = {
-      id: user._id,
-      firstname: user.firstname,
-      email: user.email,
-      isVerified: user.isVerified,
-    };
-
-    req.session.save((err) => {
-      if (err) {
-        console.log("Session save error:", err);
-        return res
-          .status(500)
-          .json({ success: false, message: "Session error" });
-      }
-
-      return res.status(200).json({
-        success: true,
-        isLoggedIn: true,
-        user: req.session.user,
-        message: "User verified and logged in successfully",
-      });
-    });
+    return createSession(req, user, res);
   } catch (error) {
-    console.error("Verification error:", error);
-    res.status(500).json({ success: false, message: "Server error" });
+    console.error("Verify Email Error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 };
-exports.ResendOtp = (req,res,next) => {
-  SendVerificationCode(
-    res.email,
-    res.verificationCode,
-    res.firstname
-  );
+
+// Resend OTP
+exports.resendOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+
+    const code = generateVerificationCode();
+    user.verificationCode = code;
+    user.verificationCodeExpiry = Date.now() + VERIFICATION_CODE_EXPIRY;
+    await user.save();
+
+    await SendVerificationCode(user.email, code, user.firstname);
+
+    return res.json({ success: true, message: "Code resent" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Logout
+exports.postLogout = (req, res) => {
+  req.session.destroy((err) => {
+    if (err) return res.status(500).json({ success: false, message: "Logout failed" });
+
+    res.clearCookie("connect.sid", {
+      httpOnly: true,
+      sameSite: "none",
+      secure: false, // set to true if using https
+    });
+
+    return res.json({ success: true, message: "Logged out successfully" });
+  });
+};
+
+
+exports.resetPassword = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    // ✅ Password Validation
+    const passwordRegex =
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[\w@$!%*?&]{8,}$/;
+
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Password must be at least 8 characters and include uppercase, lowercase, number, and special character.",
+      });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    const user = await User.findOne({
+      _id: decoded.id,
+      resetToken: token,
+      resetTokenExpiry: { $gt: Date.now() },
+    });
+
+    if (!user)
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid or expired token" });
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    user.password = hashedPassword;
+    user.resetToken = undefined;
+    user.resetTokenExpiry = undefined;
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: "✅ Password reset successful! Please log in.",
+    });
+  } catch (error) {
+    console.error("Reset Password Error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+
+    const resetToken = jwt.sign({ id: user._id }, JWT_SECRET, {
+      expiresIn: "15m",
+    });
+
+    user.resetToken = resetToken;
+    user.resetTokenExpiry = Date.now() + 15 * 60 * 1000;
+    await user.save();
+
+    const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
+    await SendResendMail(
+      user.email,
+      user.firstname,
+      resetLink
+    );
+
+    return res.json({
+      success: true,
+      message: "Password reset link sent to your email",
+    });
+  } catch (error) {
+    console.error("Forgot Password Error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
 };
