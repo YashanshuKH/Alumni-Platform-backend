@@ -19,12 +19,25 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // ✅ CORS (Must be before session)
-app.use(
-  cors({
-    origin: ["http://localhost:5173","https://alumni-platform-18zc.onrender.com"], // <-- Change if your frontend runs on another port
-    credentials: true,
-  })
-);
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://alumni-platform-18zc.onrender.com"
+];
+
+app.use(cors({
+  origin: function(origin, callback) {
+    // allow requests like Postman with no origin
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true
+}));
+
 
 // ✅ MongoDB Session Store
 const store = new MongoDBStore({
