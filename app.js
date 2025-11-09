@@ -1,67 +1,71 @@
-const express = require('express');
-require('dotenv').config()
-const cors = require("cors")
-const DB_PATH=process.env.MONGO_URL;
-const session = require('express-session');
-const MongoDBStore =require('connect-mongodb-session')(session);
-const { default: mongoose } = require('mongoose');
-const authRouter = require('./routes/authRouter');
+const express = require("express");
+require("dotenv").config();
+const cors = require("cors");
+const mongoose = require("mongoose");
+const session = require("express-session");
+const MongoDBStore = require("connect-mongodb-session")(session);
+const cookieParser = require("cookie-parser");
 
-const alumniRouter = require('./routes/alumniRouter');
-const cookieParser = require('cookie-parser');
-const adminRouter = require('./routes/adminRouter');
+// Routers
+const authRouter = require("./routes/authRouter");
+const alumniRouter = require("./routes/alumniRouter");
+const adminRouter = require("./routes/adminRouter");
 
-const app=express();
+const app = express();
 
-app.use(express.json()); // <-- Important
-app.use(cookieParser())
-app.use(express.urlencoded({ extended: true })); 
+// ---------- Middleware ----------
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
+// ✅ CORS (Must be before session)
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "https://alumni-platform-18zc.onrender.com"
-    ],
+    origin: "http://localhost:5173", // <-- Change if your frontend runs on another port
     credentials: true,
   })
 );
 
-
-// MongoDB session store
+// ✅ MongoDB Session Store
 const store = new MongoDBStore({
-  uri:process.env.MONGO_URL,
+  uri: process.env.MONGO_URL,
   collection: "sessions",
 });
 
-// Session middleware
+store.on("error", (error) => console.log("❌ Session Store Error:", error));
+
+// ✅ Session Config
 app.use(
   session({
-    secret: process.env.JWT_SECRET, // store in .env
+    secret: process.env.JWT_SECRET,
     resave: false,
     saveUninitialized: false,
-    store: store,
+    store,
     cookie: {
-      maxAge: 1000 * 60 * 60 * 24 *30, // 1 hour
-      httpOnly: true, // cannot be accessed by JS
-      secure: true, // set true if using HTTPS
-      sameSite:"none"
+      httpOnly: true,
+      secure: false, // If deploying to production + https → set true
+      sameSite: "lax",
+      maxAge: 1000 * 60 * 60 * 24, // 24 hours
     },
   })
 );
 
-app.use("/api/auth",authRouter)
-app.use("/api/alumni",alumniRouter)
-app.use("/api/admin",adminRouter)
+// ---------- Routes ----------
+app.use("/api/auth", authRouter);
+app.use("/api/alumni", alumniRouter);
+app.use("/api/admin", adminRouter);
 
+// Health Check
+app.get("/", (_req, res) => res.send("✅ Server is Running"));
 
-
-const PORT=process.env.PORT || 3000;
-mongoose.connect(DB_PATH).then(()=>{
-    console.log('Connected to Mongo');
-    app.listen(PORT,()=>{
-    console.log(`Server running at http://localhost:${PORT}`);
-});
-}).catch(err=>{
-    console.log("Error while connecting",err)
-})
+// ---------- Start Server ----------
+const PORT = process.env.PORT || 3000;
+mongoose
+  .connect(process.env.MONGO_URL)
+  .then(() => {
+    console.log("✅ MongoDB Connected");
+    app.listen(PORT, () =>
+      console.log(`🚀 Server running at http://localhost:${PORT}`)
+    );
+  })
+  .catch((err) => console.log("❌ MongoDB Error:", err));
