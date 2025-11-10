@@ -21,7 +21,6 @@ app.use(cookieParser());
 // ✅ CORS (Must be before session)
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://alumni-platform-18zc.onrender.com"
 ];
 
 app.use(cors({
@@ -56,7 +55,7 @@ app.use(
     store,
     cookie: {
       httpOnly: true,
-      secure: true, // If deploying to production + https → set true
+      secure: false, // If deploying to production + https → set true
       sameSite: "lax",
       maxAge: 1000 * 60 * 60 * 24, // 24 hours
     },
