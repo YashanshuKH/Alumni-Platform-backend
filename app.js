@@ -21,6 +21,7 @@ app.use(cookieParser());
 // ✅ CORS (Must be before session)
 const allowedOrigins = [
   "http://localhost:5173",
+  "https://alumni-platform-backend-9r9d.onrender.com"
 ];
 
 app.use(cors({
