@@ -56,7 +56,7 @@ app.use(
     store,
     cookie: {
       httpOnly: true,
-      secure: false, // If deploying to production + https → set true
+      secure: true, // If deploying to production + https → set true
       sameSite: "lax",
       maxAge: 1000 * 60 * 60 * 24, // 24 hours
     },
