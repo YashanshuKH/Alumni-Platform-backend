@@ -3,6 +3,7 @@ const adminRouter = express.Router();
 
 const adminController = require("../Controllers/adminController");
 
+
 // ===================================================
 // ADMIN MANAGEMENT ROUTES
 // ===================================================
@@ -43,6 +44,11 @@ const adminController = require("../Controllers/adminController");
 
 // ---------------------------------------------------
 
-adminRouter.get("/userscount", adminController.getUserCount);
+adminRouter.get("/getAllAlumni", adminController.getAllAlumni);
+adminRouter.get("/getAllStudents", adminController.getAllStudents);
+
+adminRouter.get("/activeusers", adminController.ActiveUsers);
+
+
 
 module.exports = adminRouter;

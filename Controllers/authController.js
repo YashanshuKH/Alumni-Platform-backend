@@ -14,34 +14,63 @@ const VERIFICATION_CODE_EXPIRY = 10 * 60 * 1000; // 10 minutes
 const generateVerificationCode = () =>
   crypto.randomInt(100000, 999999).toString();
 
-const createSession = (req, user, res) => {
-  req.session.isLoggedIn = true;
-  req.session.user = {
-    id: user._id,
-    firstname: user.firstname,
-    email: user.email,
-    isVerified: user.isVerified,
-  };
+const createSession = async (req, user, res) => {
+  try {
+    // Update in DB
+    user.lastseen = new Date();
+    await user.save();
 
-  req.session.save((err) => {
-    if (err)
-      return res
-        .status(500)
-        .json({ success: false, message: "Session save failed" });
-    return res.status(200).json({
-      success: true,
-      isLoggedIn: true,
-      user: req.session.user,
-      message: "Login successful",
+    // Save into session also
+    req.session.isLoggedIn = true;
+    req.session.user = {
+      id: user._id,
+      firstname: user.firstname,
+      email: user.email,
+      isVerified: user.isVerified,
+      role: user.role,
+      lastseen: user.lastseen,
+    };
+
+    req.session.save((err) => {
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          message: "Session save failed",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        isLoggedIn: true,
+        user: req.session.user,
+        message: "Login successful",
+      });
     });
-  });
+  } catch (error) {
+    console.error("Session Error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
 };
 
+
 // Check Session
-exports.checking = (req, res) => {
+exports.checking = async (req, res) => {
+  if (req.session.isLoggedIn && req.session.user) {
+    const user = await User.findById(req.session.user._id);
+
+    if (user) {
+      user.lastseen = new Date();
+      await user.save();
+
+      // update session user also (so frontend gets latest values)
+      req.session.user = user;
+    }
+  }
+
   return res.json({
     success: true,
     isLoggedIn: req.session.isLoggedIn || false,
+    role: req.session.role,
     user: req.session.user || null,
   });
 };
@@ -63,6 +92,7 @@ exports.postLogin = async (req, res) => {
         .status(401)
         .json({ success: false, message: "Invalid credentials" });
 
+    // If not verified, handle verification
     if (!user.isVerified) {
       const code = generateVerificationCode();
       user.verificationCode = code;
@@ -78,12 +108,19 @@ exports.postLogin = async (req, res) => {
       });
     }
 
+    // ⭐ FIX: update lastSeen on login
+    user.lastseen = new Date();
+    await user.save();
+
+    // Create session
     return createSession(req, user, res);
+
   } catch (error) {
     console.error("Login Error:", error);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
+
 
 // Signup Validation
 const signupValidationRules = [
@@ -117,6 +154,8 @@ const signupValidationRules = [
     .withMessage("Mobile number must be exactly 10 digits")
     .matches(/^[0-9]{10}$/)
     .withMessage("Mobile number must contain digits only"),
+
+  check("role").notEmpty().withMessage("Role cannot be empty"),
 
   check("email")
     .notEmpty()
@@ -152,8 +191,15 @@ exports.postSignup = [
       return res.status(422).json({ success: false, errors: errors.array() });
 
     try {
-      const { firstname, middlename, lastname, mobileno, email, password } =
-        req.body;
+      const {
+        firstname,
+        middlename,
+        lastname,
+        mobileno,
+        email,
+        password,
+        role,
+      } = req.body;
 
       if (await User.findOne({ email }))
         return res
@@ -169,6 +215,7 @@ exports.postSignup = [
         lastname,
         mobileno,
         email,
+        role,
         password: hashedPassword,
         verificationCode: code,
         verificationCodeExpiry: Date.now() + VERIFICATION_CODE_EXPIRY,
@@ -193,7 +240,6 @@ exports.verifyEmail = async (req, res) => {
     const { code } = req.body;
 
     const user = await User.findOne({
-      
       verificationCode: code,
       verificationCodeExpiry: { $gt: Date.now() },
     });
@@ -242,7 +288,8 @@ exports.resendOtp = async (req, res) => {
 // Logout
 exports.postLogout = (req, res) => {
   req.session.destroy((err) => {
-    if (err) return res.status(500).json({ success: false, message: "Logout failed" });
+    if (err)
+      return res.status(500).json({ success: false, message: "Logout failed" });
 
     res.clearCookie("connect.sid", {
       httpOnly: true,
@@ -253,7 +300,6 @@ exports.postLogout = (req, res) => {
     return res.json({ success: true, message: "Logged out successfully" });
   });
 };
-
 
 exports.resetPassword = async (req, res) => {
   try {
@@ -322,11 +368,7 @@ exports.forgotPassword = async (req, res) => {
 
     const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
-    await SendResendMail(
-      user.email,
-      user.firstname,
-      resetLink
-    );
+    await SendResendMail(user.email, user.firstname, resetLink);
 
     return res.json({
       success: true,
