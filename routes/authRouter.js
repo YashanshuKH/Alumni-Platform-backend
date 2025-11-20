@@ -3,7 +3,7 @@ const path =require('path')
 const express=require('express')
 const authRouter=express.Router()
 
-const authController=require("../Controllers/authController")
+const authController=require("../Controllers/authController");
 
 authRouter.get("/check",authController.checking)
 authRouter.post("/login",authController.postLogin)

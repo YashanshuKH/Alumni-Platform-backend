@@ -34,6 +34,16 @@ const userSchema = new mongoose.Schema({
   mobileno: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  role:{
+    type:String,
+    enum:["Student","Alumni","Admin"],
+    required:true
+  },
+  lastseen :{type:Date , default:Date.now},
+  profilePicture:{
+    type:String,
+    default:""
+  },
 
   resetToken: String,
   resetTokenExpiry: Date,
@@ -42,9 +52,6 @@ const userSchema = new mongoose.Schema({
   verificationCode: { type: String },
   verificationCodeExpiry: { type: Date },
   verifiedAt: { type: Date },
-
-  // Jobs array
-  jobs: [jobSchema]
 });
 
 module.exports = mongoose.model("User", userSchema);
